@@ -4,7 +4,7 @@ import time
 
 import numpy as np
 
-from webcam_fun.gestures import GestureApp
+from handsight.gestures import GestureApp
 
 
 def _gesture_app():
@@ -36,8 +36,8 @@ def test_switching_the_pointer_off_lets_go_of_it():
 
 # ---------- Watcher lifecycle ----------
 
-from webcam_fun import engine  # noqa: E402
-from webcam_fun import settings as cfg  # noqa: E402
+from handsight import engine  # noqa: E402
+from handsight import settings as cfg  # noqa: E402
 
 
 FACETIME = engine.Camera("builtin-1", "FaceTime HD Camera", True)

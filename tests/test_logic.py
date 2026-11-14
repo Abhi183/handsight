@@ -1,11 +1,11 @@
 import numpy as np
 import pytest
 
-from webcam_fun.ascii_art import fit_size, to_levels
-from webcam_fun.gesture_trigger import HoldTrigger
-from webcam_fun.posture import PostureJudge
-from webcam_fun.presence import AutoLock
-from webcam_fun.watch import ShoulderWatch
+from handsight.ascii_art import fit_size, to_levels
+from handsight.gesture_trigger import HoldTrigger
+from handsight.posture import PostureJudge
+from handsight.presence import AutoLock
+from handsight.watch import ShoulderWatch
 
 # ---------- AutoLock ----------
 
@@ -192,33 +192,33 @@ def _pointing_hand(direction: str) -> list[tuple[float, float]]:
 
 
 def test_point_right_and_left():
-    from webcam_fun.pointing import classify_point
+    from handsight.pointing import classify_point
     assert classify_point(_pointing_hand("right")) == "Point_Right"
     assert classify_point(_pointing_hand("left")) == "Point_Left"
 
 
 def test_pointing_up_is_not_sideways():
-    from webcam_fun.pointing import classify_point
+    from handsight.pointing import classify_point
     pts = _pointing_hand("right")
     pts[6], pts[7], pts[8] = (0.55, 0.5), (0.55, 0.42), (0.55, 0.34)
     assert classify_point(pts) is None
 
 
 def test_open_hand_is_not_pointing():
-    from webcam_fun.pointing import classify_point
+    from handsight.pointing import classify_point
     pts = _pointing_hand("right")
     pts[12], pts[16], pts[20] = (0.5, 0.3), (0.45, 0.32), (0.4, 0.36)  # other fingers out
     assert classify_point(pts) is None
 
 
 def test_curled_index_is_not_pointing():
-    from webcam_fun.pointing import classify_point
+    from handsight.pointing import classify_point
     pts = _pointing_hand("right")
     pts[8] = (0.56, 0.68)  # tip folded back toward the palm
     assert classify_point(pts) is None
 
 
 def test_too_few_landmarks():
-    from webcam_fun.pointing import classify_point
+    from handsight.pointing import classify_point
     assert classify_point([(0.5, 0.5)] * 5) is None
 

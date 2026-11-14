@@ -2,7 +2,7 @@ import random
 
 import pytest
 
-from webcam_fun.cursor import CursorDriver, CursorMode, CursorStep, pinch_ratio
+from handsight.cursor import CursorDriver, CursorMode, CursorStep, pinch_ratio
 
 POINT, PALM, FIST, TWO = "Pointing_Up", "Open_Palm", "Closed_Fist", "Victory"
 OPEN, PINCHED = 0.9, 0.1  # thumb-to-index distance in palm lengths

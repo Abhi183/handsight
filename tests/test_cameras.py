@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from webcam_fun import settings as s
-from webcam_fun.cameras import Camera, choose
+from handsight import settings as s
+from handsight.cameras import Camera, choose
 
 BUILT_IN = Camera("builtin-1", "FaceTime HD Camera", True)
 EXTERNAL = Camera("usb-2", "Desk Camera", False)

@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 
 case "${1:-}" in
   app)
-    APP="$HOME/Desktop/Desk Guard.app"
+    APP="$HOME/Desktop/Handsight.app"
     [ -d "$APP" ] || tools/make_app.sh
     exec open "$APP" ;;
   desk)     module=desk ;;
@@ -37,4 +37,4 @@ if [ ! -f "$face_id_model" ]; then
   mv "$face_id_model.part" "$face_id_model"
 fi
 
-exec .venv/bin/python -m "webcam_fun.$module" "$@"
+exec .venv/bin/python -m "handsight.$module" "$@"

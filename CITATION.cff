@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use Handsight in your work, please cite it like this."
+title: "Handsight: hands-free Mac control with your webcam"
+type: software
+authors:
+  - family-names: Shekhar
+    given-names: Abhishek
+    alias: Abhi183
+repository-code: "https://github.com/Abhi183/handsight"
+url: "https://github.com/Abhi183/handsight"
+license: Apache-2.0
+version: "1.1"
+date-released: "2026-11-14"
+keywords:
+  - accessibility
+  - hands-free
+  - gesture control
+  - hand tracking
+  - macOS

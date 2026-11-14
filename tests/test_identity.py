@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from webcam_fun.identity import (
+from handsight.identity import (
     CompanyWatch,
     MeTracker,
     OwnerTracker,
@@ -10,7 +10,7 @@ from webcam_fun.identity import (
     has_company,
     pick_me,
 )
-from webcam_fun.recognition import Enroller
+from handsight.recognition import Enroller
 
 # ---------- pick_me ----------
 
@@ -234,8 +234,8 @@ def _unit(v):
 
 
 def test_face_id_restarts_learning_when_the_face_is_not_alone(monkeypatch, tmp_path):
-    from webcam_fun import recognition
-    from webcam_fun.vision import Face
+    from handsight import recognition
+    from handsight.vision import Face
 
     monkeypatch.setattr(recognition, "PROFILE_FILE", tmp_path / "face_profile.npy")
     monkeypatch.setattr(recognition, "ENROLL_SAMPLES", 3)
@@ -273,40 +273,40 @@ def _gallery_of(*rows):
 
 
 def test_gallery_score_is_the_closest_sample():
-    from webcam_fun.recognition import gallery_score
+    from handsight.recognition import gallery_score
     gallery = _gallery_of([1, 0, 0], [0, 1, 0])
     assert gallery_score(gallery, _unit([0, 1, 0.1])) == pytest.approx(0.995, abs=0.01)
 
 
 def test_gallery_grows_with_a_new_view_of_you():
-    from webcam_fun.recognition import grown
+    from handsight.recognition import grown
     gallery = _gallery_of([1, 0, 0])
     bigger = grown(gallery, _unit([0.7, 0.7, 0]))  # similarity 0.71: you, from a new angle
     assert bigger is not None and len(bigger) == 2 and len(gallery) == 1
 
 
 def test_gallery_skips_strangers_and_near_duplicates():
-    from webcam_fun.recognition import grown
+    from handsight.recognition import grown
     gallery = _gallery_of([1, 0, 0])
     assert grown(gallery, _unit([0.2, 1, 0])) is None    # not you
     assert grown(gallery, _unit([1, 0.1, 0])) is None    # nothing new
 
 
 def test_gallery_does_not_drift_away_from_the_first_sample():
-    from webcam_fun.recognition import grown
+    from handsight.recognition import grown
     # Close to the second sample but nothing like the first: a lookalike of a lookalike.
     gallery = _gallery_of([1, 0, 0], [0.6, 0.8, 0])
     assert grown(gallery, _unit([0.1, 0.9, 0.42])) is None
 
 
 def test_gallery_stops_at_its_size_limit(monkeypatch):
-    from webcam_fun import recognition
+    from handsight import recognition
     monkeypatch.setattr(recognition, "GALLERY_MAX", 1)
     assert recognition.grown(_gallery_of([1, 0, 0]), _unit([0.7, 0.7, 0])) is None
 
 
 def test_old_single_sample_profile_still_loads(monkeypatch, tmp_path):
-    from webcam_fun import recognition
+    from handsight import recognition
     monkeypatch.setattr(recognition, "PROFILE_FILE", tmp_path / "face_profile.npy")
     np.save(recognition.PROFILE_FILE, np.ones(128, dtype=np.float32))
     profile = recognition.load_profile()

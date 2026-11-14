@@ -24,8 +24,11 @@ menubar_settings.json
 .quit_all
 
 # Built locally by tools/make_app.sh (contains your home path)
-Desk Guard.app/
+Handsight.app/
 
 # Downloaded on first run by ./run (too big for git)
 models/face_recognition_sface_2021dec.onnx
 models/selfie_segmenter.tflite
+
+# Built by tools/build_dmg.sh
+dist/

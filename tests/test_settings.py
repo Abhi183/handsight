@@ -2,9 +2,9 @@ import json
 
 import pytest
 
-from webcam_fun import settings as s
-from webcam_fun.gesture_trigger import HoldTrigger
-from webcam_fun.gestures import GestureApp, gesture_action
+from handsight import settings as s
+from handsight.gesture_trigger import HoldTrigger
+from handsight.gestures import GestureApp, gesture_action
 
 # ---------- loading and saving ----------
 
@@ -23,7 +23,7 @@ def test_old_settings_file_still_loads(tmp_path):
     loaded = s.load(path)
     assert loaded.flags["show_video"] is False
     assert loaded.flags["privacy"] is False
-    assert loaded.flags["tabs"] is True  # new switch, default on
+    assert loaded.flags["cursor"] is True  # new switch, default on
     assert loaded.name == "Alex"
 
 
@@ -44,7 +44,7 @@ def test_corrupt_file_gives_defaults(tmp_path):
 
 def test_save_then_load_round_trips(tmp_path):
     path = tmp_path / "settings.json"
-    original = s.toggled(s.Settings(name="Alex"), "selfie").with_lock_after(10)
+    original = s.toggled(s.Settings(name="Alex"), "cursor").with_lock_after(10)
     s.save(original, path)
     assert s.load(path) == original
 
@@ -96,10 +96,18 @@ def test_everything_on_needs_no_off_flags():
 
 
 def test_off_switches_become_flags():
-    settings = s.toggled(s.toggled(s.toggled(s.Settings(), "sounds"), "volume"), "tabs")
+    settings = s.toggled(s.toggled(s.Settings(), "sounds"), "scroll")
     args = s.to_args(settings)
     assert "--mute" in args
-    assert set(args[args.index("--gestures-off") + 1].split(",")) == {"volume", "tabs"}
+    assert args[args.index("--gestures-off") + 1] == "scroll"
+
+
+def test_saved_flags_keeps_switches_this_version_dropped(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"volume": False, "tabs": True, "name": "Alex"}))
+    assert s.saved_flags(path) == {"volume": False, "tabs": True}
+    assert "volume" not in s.load(path).flags
+    assert s.saved_flags(tmp_path / "missing.json") == {}
 
 
 def test_hold_time_follows_sensitivity():

@@ -1,7 +1,7 @@
 import pytest
 
-from webcam_fun import settings as s
-from webcam_fun.settings_api import CATALOG, SettingsApi
+from handsight import settings as s
+from handsight.settings_api import CATALOG, SettingsApi
 
 
 class FakeHost:
@@ -42,6 +42,21 @@ class FakeHost:
 
     def recalibrate_posture(self):
         self.calls.append("recalibrate")
+
+    def permission_statuses(self):
+        return {"camera": "allowed", "accessibility": "denied", "system_events": "not_asked",
+                "browsers": "not_running"}
+
+    def ask_permission(self, permission_id):
+        self.calls.append(("ask", permission_id))
+        return f"asked {permission_id}"
+
+    def open_permission_settings(self, permission_id):
+        self.calls.append(("open", permission_id))
+
+    def reset_permissions(self):
+        self.calls.append("reset")
+        return "restarting"
 
 
 @pytest.fixture
@@ -163,3 +178,32 @@ def test_water_interval_and_logging_a_glass(api, host):
     assert api.set_water_every(60)["state"]["water_every"] == 60
     assert not api.set_water_every(7)["ok"]
     assert api.log_water()["state"]["stats"]["today"]["water_glasses"] == 1
+
+
+# ---------- permissions ----------
+
+def test_permissions_in_state(api):
+    rows = api.get_state()["permissions"]
+    assert [r["id"] for r in rows] == ["camera", "accessibility", "system_events", "browsers"]
+    assert rows[1]["status"] == "denied"
+
+
+def test_ask_open_and_reset_permissions(api, host):
+    assert api.call("ask_permission", ["accessibility"])["message"] == "asked accessibility"
+    assert api.call("open_permission_settings", ["camera"])["ok"]
+    assert api.call("reset_permissions", [])["message"] == "restarting"
+    assert host.calls == [("ask", "accessibility"), ("open", "camera"), "reset"]
+
+
+def test_unknown_permission_is_refused(api, host):
+    assert not api.call("ask_permission", ["microphone"])["ok"]
+    assert not api.call("open_permission_settings", ["root"])["ok"]
+    assert host.calls == []
+
+
+def test_about_and_links(api, opened):
+    about = api.get_state()["about"]
+    assert about["author"] == "Abhishek Shekhar" and about["version"] == "dev"
+    assert api.call("open_link", ["project"])["ok"]
+    assert opened[-1] == ["open", "https://github.com/Abhi183/handsight"]
+    assert not api.call("open_link", ["https://evil.example"])["ok"]

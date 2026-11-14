@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from webcam_fun.stats import BREAK_S, DeskTime, StatsStore
-from webcam_fun.water import WaterReminder
+from handsight.stats import BREAK_S, DeskTime, StatsStore
+from handsight.water import WaterReminder
 
 # ---------- water ----------
 

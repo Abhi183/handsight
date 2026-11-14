@@ -1,6 +1,6 @@
 import pytest
 
-from webcam_fun.scroll import SCROLL_GESTURE, ScrollMode, wheel_delta
+from handsight.scroll import SCROLL_GESTURE, ScrollMode, wheel_delta
 
 
 def frames(mode, ys, start=0.0, dt=1 / 30, gesture=SCROLL_GESTURE):
@@ -50,7 +50,7 @@ def test_wheel_direction_follows_natural_scrolling():
 
 import argparse  # noqa: E402
 
-from webcam_fun import gestures  # noqa: E402
+from handsight import gestures  # noqa: E402
 
 
 class _Hand:
@@ -151,3 +151,13 @@ def test_scrolling_then_point_up_takes_the_pointer_back(monkeypatch):
     assert app.scroll_mode.active
     _run(app, "Pointing_Up", t, 0.6)
     assert app.cursor_mode.active and not app.scroll_mode.active
+
+
+def test_blocked_pointer_says_so_once_per_grab(monkeypatch):
+    app, _, _, _ = _switch_app(monkeypatch)
+    monkeypatch.setattr(gestures.macos, "move_mouse", lambda pos: False)  # no Accessibility
+    said = []
+    monkeypatch.setattr(app, "say", lambda text, now: said.append(text))
+    t = _run(app, "Pointing_Up", 0, 0.6, dy=0.01)
+    t = _run(app, "Pointing_Up", t, 0.6, dy=-0.01)
+    assert said.count(gestures.NO_MOUSE_ACCESS) == 1

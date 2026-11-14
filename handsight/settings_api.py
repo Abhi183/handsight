@@ -1,0 +1,288 @@
+"""What the settings window can read and do. Called from the window's JavaScript.
+
+Pure Python with no AppKit, so it is unit tested. The app passes itself in as `host`;
+every change is saved to the settings file and handed to the host to apply right away.
+"""
+
+import inspect
+import sys
+from pathlib import Path
+from typing import Callable, Protocol
+
+from handsight import about
+from handsight import custom_gestures as cg
+from handsight import gesture_store as gs
+from handsight import permissions as perm
+from handsight import settings as cfg
+from handsight.gesture_actions import Action
+from handsight.gesture_api import Background, GestureMethods, gesture_state
+from handsight.gesture_api import fail as _fail
+from handsight.gesture_api import ok as _ok
+from handsight.identity import clean_name
+
+STATUSES = ("watching", "stopped", "starting", "camera blocked", "no camera")
+GROUPS = {"features": tuple(cfg.FEATURES), "gestures": cfg.GESTURE_SWITCHES}
+FOLDERS = {"caught": "caught", "snaps": "snaps"}
+
+
+class Host(Protocol):
+    def status(self) -> str: ...
+    def cameras(self) -> list[dict]: ...           # connected: [{id, name, built_in}]
+    def camera_in_use(self) -> str | None: ...     # unique ID, None while not watching
+    def stats(self) -> dict: ...                   # StatsStore.snapshot()
+    def log_water(self) -> None: ...
+    def apply_settings(self, settings: cfg.Settings) -> None: ...
+    def toggle_watching(self) -> None: ...
+    def relearn_face(self) -> None: ...
+    def recalibrate_posture(self) -> None: ...
+    def apply_gestures(self, store: gs.GestureStore) -> None: ...
+    def test_action(self, action: Action) -> str: ...  # runs it once; what happened
+    def choose_app(self) -> str | None: ...           # a picked .app path, or None
+    def permission_statuses(self) -> dict[str, str]: ...
+    def ask_permission(self, permission_id: str) -> str: ...
+    def open_permission_settings(self, permission_id: str) -> None: ...
+    def reset_permissions(self) -> str: ...
+
+
+# What the window shows. Sections without items are custom pages drawn by the HTML.
+CATALOG = (
+    {"id": "overview", "title": "Overview", "icon": "grid"},
+    {"id": "today", "title": "Today", "icon": "chart",
+     "subtitle": "Your day at the desk. Everything is counted on this Mac only."},
+    {"id": "camera", "title": "Camera", "icon": "camera",
+     "subtitle": "Choose which camera Handsight watches with."},
+    {"id": "security", "title": "Security", "icon": "shield",
+     "subtitle": "Protect your screen when you step away or someone is watching.",
+     "items": [
+         {"key": "auto_lock", "label": "Lock when I leave",
+          "detail": "Locks the Mac when you're no longer at the desk, or a stranger sits down."},
+         {"key": "guard", "label": "Shoulder-surfer alarm",
+          "detail": "Alerts, plays a sound and saves a photo when a second face looks at the screen."},
+         {"key": "privacy", "label": "Close personal apps with company",
+          "detail": "Quits Messages and WhatsApp and closes Instagram/WhatsApp tabs when "
+                    "someone sits with you."},
+     ]},
+    {"id": "wellbeing", "title": "Wellbeing", "icon": "heart",
+     "subtitle": "Gentle nudges while you work.",
+     "items": [
+         {"key": "posture", "label": "Posture alerts",
+          "detail": "Nudges you when you lean in too close or slouch."},
+         {"key": "water", "label": "Drink water reminders",
+          "detail": "A nudge after a stretch at the desk. Only time you're at the desk counts."},
+         {"key": "sounds", "label": "Sounds",
+          "detail": "Play a sound with alerts. Pop-ups still show when this is off."},
+     ]},
+    {"id": "gestures", "title": "Gestures", "icon": "hand",
+     "subtitle": "Control your Mac with your hand. Only your hand is obeyed.",
+     "items": [
+         {"key": "gestures", "label": "Gesture control", "master": True,
+          "detail": "Turns every gesture below on or off."},
+         {"key": "scroll", "label": "Scroll", "glyph": "🖐️",
+          "detail": "Show an open palm, then move your hand up or down like on a trackpad."},
+         {"key": "cursor", "label": "Move the pointer", "glyph": "☝️",
+          "detail": "Point up to take the pointer. Pinch clicks, fist lifts, open palm "
+                    "switches to scrolling, any other gesture lets go."},
+     ]},
+    {"id": "identity", "title": "Face & identity", "icon": "person",
+     "subtitle": "Handsight learns your face so it only obeys and unlocks for you."},
+    {"id": "display", "title": "Display", "icon": "display",
+     "subtitle": "How Handsight shows itself.",
+     "items": [
+         {"key": "show_video", "label": "Video window",
+          "detail": "Show the live camera window. Off keeps watching with pop-ups only."},
+         {"key": "video_on_top", "label": "Keep video on top",
+          "detail": "Float the video window above other windows."},
+     ]},
+    {"id": "permissions", "title": "Permissions", "icon": "key",
+     "subtitle": "What macOS lets Handsight do. Skipped a prompt? Ask again here."},
+    {"id": "data", "title": "Data & logs", "icon": "folder",
+     "subtitle": "Everything stays on this Mac."},
+)
+
+
+
+
+class SettingsApi(GestureMethods):
+    """Methods the window may call, by name. Everything else is refused."""
+
+    CALLABLE = frozenset({
+        "get_state", "set_flag", "set_all", "set_group", "set_lock_after", "set_sensitivity",
+        "set_name", "set_camera", "set_water_every", "log_water", "toggle_watching",
+        "relearn_face", "recalibrate_posture", "open_folder", "open_log",
+        # gestures (see GestureMethods)
+        "set_binding", "reset_bindings", "set_custom_action", "rename_custom",
+        "delete_custom", "start_recording", "cancel_recording", "gesture_live",
+        "save_recording", "test_action", "list_shortcuts", "choose_app", "set_allow_shell",
+        # permissions
+        "ask_permission", "open_permission_settings", "reset_permissions",
+        "open_link"})
+
+    def __init__(self, settings_file: Path, root: Path, host: Host,
+                 opener: Callable[[list[str]], object], gestures_file: Path | None = None,
+                 recorder: cg.Recorder | None = None) -> None:
+        self._file = settings_file
+        self._root = root
+        self._host = host
+        self._open = opener
+        self._gestures_file = gestures_file or root / "gestures.json"
+        self._recorder = recorder or cg.Recorder()
+        self._background = Background()
+
+    def call(self, method: str, args: list) -> dict:
+        """Entry point for the JavaScript bridge."""
+        if method not in self.CALLABLE or not isinstance(args, list):
+            return _fail(f"unknown action: {method}")
+        handler = getattr(self, method)
+        try:
+            inspect.signature(handler).bind(*args)
+        except TypeError as e:  # wrong number of arguments from the page
+            return _fail(f"bad call to {method}: {e}")
+        return handler(*args)
+
+    # ---------- reading ----------
+    def get_state(self) -> dict:
+        settings = cfg.load(self._file)
+        status = self._host.status()
+        return {
+            "flags": dict(settings.flags),
+            "lock_after": settings.lock_after,
+            "lock_choices": list(cfg.LOCK_CHOICES),
+            "sensitivity": settings.sensitivity,
+            "sensitivity_levels": dict(cfg.SENSITIVITY),
+            "name": settings.name,
+            "status": status if status in STATUSES else "stopped",
+            "camera": settings.camera,
+            "camera_name": settings.camera_name,
+            "cameras": self._host.cameras(),
+            "camera_in_use": self._host.camera_in_use(),
+            "water_every": settings.water_every,
+            "water_choices": list(cfg.WATER_CHOICES),
+            "stats": self._host.stats(),
+            "catalog": CATALOG,
+            "gestures": self._gesture_state(),
+            "permissions": perm.view(self._host.permission_statuses()),
+            "about": about.info(),
+        }
+
+    def _load_gestures(self) -> gs.GestureStore:
+        return gs.load(self._gestures_file, cfg.saved_flags(self._file))
+
+    def _gesture_state(self) -> dict:
+        return gesture_state(self._load_gestures())
+
+    # ---------- changing settings ----------
+    def _change(self, update: Callable[[cfg.Settings], cfg.Settings]) -> dict:
+        try:
+            new = update(cfg.load(self._file))
+        except (KeyError, ValueError) as e:
+            return _fail(str(e).strip("'\""))
+        try:
+            cfg.save(new, self._file)
+        except OSError as e:
+            print(f"settings: could not save: {e}", file=sys.stderr, flush=True)
+            return _fail(f"Could not save settings: {e.strerror or e}")
+        self._host.apply_settings(new)
+        return _ok(self.get_state())
+
+    def set_flag(self, key: str, on: bool) -> dict:
+        if not isinstance(on, bool):
+            return _fail("on must be true or false")
+        return self._change(lambda s: s.with_flags({key: on}))
+
+    def set_all(self, on: bool) -> dict:
+        return self._change(lambda s: cfg.with_all(s, bool(on)))
+
+    def set_group(self, group: str, on: bool) -> dict:
+        if group not in GROUPS:
+            return _fail(f"unknown group: {group}")
+        return self._change(lambda s: cfg.with_group(s, GROUPS[group], bool(on)))
+
+    def set_lock_after(self, seconds: int) -> dict:
+        return self._change(lambda s: s.with_lock_after(seconds))
+
+    def set_sensitivity(self, level: str) -> dict:
+        return self._change(lambda s: s.with_sensitivity(level))
+
+    def set_name(self, name: str) -> dict:
+        text = name.strip() if isinstance(name, str) else ""
+        if text and clean_name(text) != text:
+            return _fail("Use plain letters, 20 characters at most.")
+        return self._change(lambda s: s.with_name(text))
+
+    def set_water_every(self, minutes: int) -> dict:
+        return self._change(lambda s: s.with_water_every(minutes))
+
+    def log_water(self) -> dict:
+        self._host.log_water()
+        return _ok(self.get_state())
+
+    def set_camera(self, camera_id: str) -> dict:
+        """AUTO_CAMERA, or the ID of a connected camera (its name is saved alongside)."""
+        if camera_id == cfg.AUTO_CAMERA:
+            return self._change(lambda s: s.with_camera(cfg.AUTO_CAMERA))
+        names = {c["id"]: c["name"] for c in self._host.cameras()}
+        if camera_id not in names:
+            return _fail("That camera isn't connected.")
+        return self._change(lambda s: s.with_camera(camera_id, names[camera_id]))
+
+    # ---------- actions ----------
+    def toggle_watching(self) -> dict:
+        self._host.toggle_watching()
+        return _ok(self.get_state())
+
+    def relearn_face(self) -> dict:
+        self._host.relearn_face()
+        return _ok(self.get_state())
+
+    def recalibrate_posture(self) -> dict:
+        self._host.recalibrate_posture()
+        return _ok(self.get_state())
+
+    # ---------- permissions ----------
+    def ask_permission(self, permission_id: str) -> dict:
+        if permission_id not in perm.BY_ID:
+            return _fail(f"unknown permission: {permission_id}")
+        message = self._host.ask_permission(permission_id)
+        reply = _ok(self.get_state())
+        reply["message"] = message
+        return reply
+
+    def open_permission_settings(self, permission_id: str) -> dict:
+        if permission_id not in perm.BY_ID:
+            return _fail(f"unknown permission: {permission_id}")
+        self._host.open_permission_settings(permission_id)
+        return _ok(self.get_state())
+
+    def reset_permissions(self) -> dict:
+        reply = _ok(self.get_state())
+        reply["message"] = self._host.reset_permissions()
+        return reply
+
+    def open_link(self, which: str) -> dict:
+        """Only our own two pages; the window can't open arbitrary addresses."""
+        links = {"project": about.PROJECT_URL, "author": about.AUTHOR_URL}
+        if which not in links:
+            return _fail(f"unknown link: {which}")
+        self._open(["open", links[which]])
+        return _ok(self.get_state())
+
+    def open_folder(self, name: str) -> dict:
+        if name not in FOLDERS:
+            return _fail(f"unknown folder: {name}")
+        path = self._root / FOLDERS[name]
+        try:
+            path.mkdir(exist_ok=True)
+            self._open(["open", str(path)])
+        except OSError as e:
+            return _fail(f"Could not open {name}: {e.strerror or e}")
+        return _ok(self.get_state())
+
+    def open_log(self) -> dict:
+        log = self._root / "desk.log"
+        try:
+            log.touch()
+            self._open(["open", "-t", str(log)])
+        except OSError as e:
+            return _fail(f"Could not open the log: {e.strerror or e}")
+        return _ok(self.get_state())
+
